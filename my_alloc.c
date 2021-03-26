@@ -54,6 +54,7 @@ int my_init(void){
 	*(head+4)=0;
 
 	// int *p = head;
+	
 	// printf("%p %p %d\n",(p),(p+1), (int)sizeof(p) );
 }
 
