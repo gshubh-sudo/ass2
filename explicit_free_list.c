@@ -5,64 +5,47 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
-// using a previous pointer as well hoping that it would help in coalescing
-typedef struct header{
-	size_t size;
-	struct header *next;
-	struct header *prev;
-}header;
-
 void print_list();
 void my_free(char *c); 
 int find_big();
 int find_small();
 int * head, *lhead;
 
-int *curr_size,*max_size,*free_size,*nblocks,*smol_chunk,*big_chunk;
+int *curr_size,*free_size,*nblocks,*smol_chunk,*big_chunk, *flag;
 int my_init(void);
 void *my_alloc(size_t size);
 void insert_list(int *h);
 int *find_fit(size_t size);
 void coalesce();
-
+void my_clean();
 #define fhead_size 12
-#define max_size 4096-20
+#define max_size 4096-24
 
 int my_init(void){
-	// printf("yo beech\n");
-	// printf("yo beech\n");
+
 	size_t a=4;
 	head=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_ANON|MAP_PRIVATE, -1, 0);
-	// printf("yo beech\n");
-	curr_size = head+4076/4;
+	curr_size = head+4072/4;
 	free_size=curr_size+1;
 	nblocks=curr_size+2;
 	smol_chunk=curr_size+3;
 	big_chunk=curr_size+4;
-	// printf("yo beech\n");
+	flag = curr_size+5;
 
 	*curr_size=fhead_size;
 	*free_size=max_size-*curr_size;
 	*nblocks=0;
 	*smol_chunk=*free_size;
 	*big_chunk=*free_size;
-	// printf("yo beech\n");
-	// printf("yo beech\n");
+	*flag =00;
 
 	lhead=head;	
-	*head = 4096-20-fhead_size;
-	// printf("%d",*head);
-	//previous
+	*head = 4096-24-fhead_size;
+
 	*(head+1) =-1;
-	//next
-	*(head+2)=0;
-	//allocated or not
-	*(head+3)=0;
 	//offset
-	*(head+4)=0;
-	// printf("yo beech\n");
-	// int *p = head;
-	// printf("%p %p %d\n",(p),(p+1), (int)sizeof(p) );
+	*(head+2)=0;
+
 }
 
 void *my_alloc(size_t size){
@@ -73,11 +56,10 @@ void *my_alloc(size_t size){
 		
 		return NULL;
 	}
-	// printf("yo beech\n");
+	
 	int *p = find_fit(size);
-	// printf("yo beech\n");
+	
 	if(p==NULL){
-		printf("no block size this big\n");
 		return NULL;
 	}
 
@@ -86,7 +68,7 @@ void *my_alloc(size_t size){
 
 
 	if(*p -size <= fhead_size){
-		printf("this is exec\n");
+		
 		*(p+1) == *(p+2);
 
 		*free_size-=(*p);
@@ -98,12 +80,22 @@ void *my_alloc(size_t size){
 			}
 			else lhead=NULL;
 		}
-		*smol_chunk=find_small();
-		*big_chunk=find_big();
+		if(*p == *smol_chunk){
+			*flag = *flag | 10;
+		}
+		if(*p == *big_chunk){
+			*flag =*flag |01;
+		}
+		
 		return p+2;
 	}
 
 	else{
+		
+		if(*p == *big_chunk){
+			*flag =*flag |01;
+		}
+
 		h= p+2+size/4;
 		*h=*p-8-size;
 		*(h+1) = *(p+1);
@@ -111,13 +103,14 @@ void *my_alloc(size_t size){
 		*p = size;
 		*(p+1) =*(p+2);
 
-		// printf("happening here\n");
-		// printf("%d %d \n", *free_size, *curr_size );
+		
 		*free_size-=(*p)+8;
 		*curr_size+=(*p)+8;
-		// printf("%d %d \n", *free_size, *curr_size );
 		
-
+		
+		if(*h < *smol_chunk){
+			*smol_chunk = *h;
+		}
 		
 		if(lhead==p){
 			lhead=h;
@@ -125,16 +118,12 @@ void *my_alloc(size_t size){
 		else{
 			insert_list(h);
 		}
-
-		*big_chunk=find_big();
-		*smol_chunk=find_small();
-		
 		return p+2;
 	}
 
 }
 void insert_list(int *h){
-	printf("shhhs\n");
+
 	if(lhead==NULL){
 		lhead=h;
 		return;
@@ -172,6 +161,9 @@ void insert_list(int *h){
 }
 
 int *find_fit(size_t size){
+	if(lhead==NULL){
+		return NULL;
+	}
 	int* h = lhead;
 	int *h1=NULL;
 	if(*h >=size ){
@@ -214,9 +206,7 @@ void print_list(){
 }
 
 void my_free(char *c){
-	// printf("inside free\n");
 	if(c==NULL){
-		printf("dont gimme null\n");
 		return;
 	}
 	int *h = (int *)c;
@@ -239,10 +229,12 @@ void my_free(char *c){
 
 	insert_list(h);
 	coalesce();
-
-	*big_chunk=find_big();
+	*flag = *flag &10;
+	// *big_chunk=find_big();
 	*smol_chunk=find_small();
+	*flag =0;
 }
+
 int find_small(){
 	*smol_chunk=10000;
 	if(lhead ==NULL){
@@ -288,7 +280,11 @@ int find_big(){
 void coalesce(){
 	int *h1=lhead;
 	int *h2=NULL;
+	*big_chunk=*h1;
 	while(*(h1+1)!=-1){
+		if(*h1>*big_chunk){
+			*big_chunk = *h1;
+		}
 		int fz = *(h1+2)+3+*(h1)/4;
 		if(fz==*(h1+1)){
 			*free_size+=fhead_size;
@@ -300,11 +296,24 @@ void coalesce(){
 		}
 		h1=head + *(h1+1);
 	}
+	if(*h1>*big_chunk){
+		*big_chunk = *h1;
+	}
 	
+}
+void my_clean(){
+	munmap(head,4096);
 }
 void my_heapinfo(){
 
 	int a, b, c, d, e, f;
+	if(*flag & 01 >0){
+		*big_chunk=find_big();
+	}
+	if(*flag & 10){
+		*smol_chunk = find_small();
+	}
+	*flag=00;
 	a=max_size;b=*curr_size;c=*free_size;d=*nblocks;e=*smol_chunk;f=*big_chunk;
 	// Do not edit below output format
 	printf("=== Heap Info ================\n");
@@ -319,70 +328,3 @@ void my_heapinfo(){
 	return;
 
 }
-
-// int main(int argc, char const *argv[])
-// {
-// 	my_init();
-// 	my_heapinfo();
-// 	print_list();
-// 	printf("ththth\n");
-// 	char *big = (char *)my_alloc(16);
-// 	char *bigg = (char *)my_alloc(16);
-// 	my_free(big);
-// 	printf("hashuhsad\n");
-// 	my_heapinfo();
-// 	print_list();
-
-// 	// char *s = (char *)my_alloc(8);
-// 	// if(s==NULL){
-// 	// 	printf("booo this allocator\n");
-// 	// }
-// 	// else{
-// 	// 	strcpy(s,"yaayhhh");
-// 	// 	printf("%s\n",s );
-// 	// }
-	
-
-// 	// my_heapinfo();
-// 	// print_list();
-
-// 	// char *t = (char *)my_alloc(8);
-// 	// if(t==NULL){
-// 	// 	printf("booo this allocator\n");
-// 	// }
-// 	// else{
-// 	// 	strcpy(t,"yaayhhh");
-// 	// 	printf("%s\n",t );
-// 	// }
-
-// 	// my_heapinfo();
-// 	// print_list();
-
-// 	// char *y = (char *)my_alloc(8);
-// 	// if(s==NULL){
-// 	// 	printf("booo this allocator\n");
-// 	// }
-// 	// else{
-// 	// 	strcpy(y,"yaayhhh");
-// 	// 	printf("%s\n",y );
-// 	// }
-
-// 	// my_heapinfo();
-// 	// print_list();
-
-// 	// my_free(s);
-
-// 	// my_heapinfo();
-// 	// print_list();
-
-// 	// my_free(y);
-
-// 	// my_heapinfo();
-// 	// print_list();
-
-// 	// my_free(t);
-
-// 	// my_heapinfo();
-// 	// print_list();
-// 	return 0;
-// }
