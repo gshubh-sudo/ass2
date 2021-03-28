@@ -6,7 +6,7 @@
 #include <sys/mman.h>
 
 void print_list();
-void my_free(char *c); 
+void my_free(void *c); 
 int find_big();
 int find_small();
 int * head, *lhead;
@@ -205,7 +205,7 @@ void print_list(){
 	printf("\n");
 }
 
-void my_free(char *c){
+void my_free(void *c){
 	if(c==NULL){
 		return;
 	}
